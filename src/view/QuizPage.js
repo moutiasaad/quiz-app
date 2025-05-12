@@ -1,32 +1,64 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { quizData } from '../../assets/data/quiz';
-
+import React, { useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../firebaseConfig';
+import { collection, getDocs, addDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import { useNavigation } from '@react-navigation/native';
 const QuizPage = () => {
+  const [quizData, setQuizData] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [hasStarted, setHasStarted] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedOption, setSelectedOption] = useState(null);
   const [score, setScore] = useState(0);
   const [showScore, setShowScore] = useState(false);
+  const navigation = useNavigation();
+  // 🔁 Fetch depuis Firebase
+  useEffect(() => {
+    const fetchQuiz = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'quiz'));
+        const data = querySnapshot.docs.map(doc => doc.data());
+        setQuizData(data);
+        setLoading(false);
+      } catch (error) {
+        console.error("Erreur de chargement des questions :", error);
+      }
+    };
+    fetchQuiz();
+  }, []);
 
   const startQuiz = () => {
     setHasStarted(true);
   };
 
-  const handleNext = () => {
-    const correctAnswer = quizData[currentQuestion].answer;
-    if (selectedOption === correctAnswer) {
-      setScore(score + 1);
-    }
-
-    setSelectedOption(null);
-
+  const handleNext = async () => {
     if (currentQuestion + 1 < quizData.length) {
       setCurrentQuestion(currentQuestion + 1);
+      setSelectedOption(null);
     } else {
       setShowScore(true);
+
+      // ✅ Send score to Firestore
+      const auth = getAuth();
+      const user = auth.currentUser;
+
+      try {
+        await addDoc(collection(db, 'scores'), {
+          email: user?.email || 'invité',
+          score: score,
+          total: quizData.length,
+          timestamp: new Date().toISOString(),
+          duration: timer
+        });
+        console.log('Score enregistré avec succès.');
+      } catch (error) {
+        console.error('Erreur enregistrement score :', error);
+      }
     }
   };
+
 
   const restartQuiz = () => {
     setHasStarted(false);
@@ -35,16 +67,33 @@ const QuizPage = () => {
     setShowScore(false);
   };
 
-  if (!hasStarted) {
+  if (loading) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Bienvenue au Quiz Systèmes Embarqués !</Text>
-        <Text style={styles.subtitle}>Testez vos connaissances sur les systèmes embarqués.</Text>
-        <TouchableOpacity style={styles.startButton} onPress={startQuiz}>
-          <Text style={styles.buttonText}>Commencer le Quiz</Text>
-        </TouchableOpacity>
+        <ActivityIndicator size="large" color="#0097e6" />
+        <Text>Chargement des questions...</Text>
       </View>
     );
+  }
+
+  if (!hasStarted) {
+    return (
+      <ScrollView contentContainerStyle={styles.container}>
+        <View >
+          <Text style={styles.title}>Bienvenue au Quiz Systèmes Embarqués !</Text>
+          <Text style={styles.subtitle}>Testez vos connaissances sur les systèmes embarqués.</Text>
+
+          <TouchableOpacity style={styles.startButton} onPress={startQuiz}>
+            <Text style={styles.buttonText}>Commencer le Quiz</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.historyButton} onPress={() => navigation.navigate('History')}>
+            <Text style={styles.buttonText}>Historique des scores</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+      );
+
   }
 
   return (
@@ -89,15 +138,22 @@ const QuizPage = () => {
   );
 };
 
-
 export default QuizPage;
 
+
 const styles = StyleSheet.create({
-  container: {
+  scrollContent: {
+  padding: 20,
+  backgroundColor: '#f5f6fa',
+  justifyContent: 'flex-start',
+  paddingTop: 60,
+},
+ container: {
     flex: 1,
     padding: 20,
     backgroundColor: '#f5f6fa',
-    justifyContent: 'center',
+    justifyContent: 'flex-start', // ✅ Allows all buttons to show
+    paddingTop: 60,               // Optional: Pushes content down
   },
   title: {
     fontSize: 24,
@@ -111,7 +167,9 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     textAlign: 'center',
     color: '#353b48',
-  },
+  },  
+  
+
   question: {
     fontSize: 20,
     fontWeight: '600',
@@ -146,6 +204,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  historyButton: {
+      backgroundColor: '#34495e',
+      padding: 15,
+      borderRadius: 8,
+      marginTop: 15,
+      alignItems: 'center',
+    },
+
   score: {
     fontSize: 24,
     fontWeight: 'bold',
